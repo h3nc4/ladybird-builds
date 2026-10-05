@@ -1,0 +1,307 @@
+name: Release
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays at 03:00 in São Paulo
+  workflow_dispatch:
+  push:
+    branches:
+      - "main"
+    paths:
+      - "*.Dockerfile"
+      - "scripts/**"
+      - ".github/workflows/release.yaml"
+  pull_request:
+    branches:
+      - "main"
+    paths:
+      - "*.Dockerfile"
+      - "scripts/**"
+      - ".github/workflows/release.yaml"
+
+permissions: {}
+
+jobs:
+  upstream:
+    name: Resolve Upstream Commit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      commit: ${{ steps.resolve.outputs.commit }}
+      tag: ${{ steps.resolve.outputs.tag }}
+      released: ${{ steps.resolve.outputs.released }}
+    steps:
+      - name: Resolve latest Ladybird commit
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          commit="$(gh api repos/LadybirdBrowser/ladybird/commits/master --jq .sha)"
+          date="$(gh api "repos/LadybirdBrowser/ladybird/commits/${commit}" --jq .commit.committer.date | cut -c 1-10 | tr -d -)"
+          tag="${date}.git${commit::7}"
+          released=false
+          if gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            released=true
+          fi
+          {
+            echo "commit=${commit}"
+            echo "tag=${tag}"
+            echo "released=${released}"
+          } >>"${GITHUB_OUTPUT}"
+
+  deps:
+    name: Dependencies ${{ matrix.target }}
+    needs: upstream
+    if: github.event_name != 'schedule' || needs.upstream.outputs.released != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - debian
+          - ubuntu
+          - appimage
+    env:
+      TARGET: ${{ matrix.target }}
+      COMMIT: ${{ needs.upstream.outputs.commit }}
+    steps:
+      - name: Run actions/checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Free runner disk
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+
+      - name: Check out Ladybird
+        run: |
+          git init -q src
+          git -C src fetch -q --depth 1 https://github.com/LadybirdBrowser/ladybird.git "${COMMIT}"
+          git -C src checkout -q FETCH_HEAD
+          echo "RUST_TOOLCHAIN=$(sed -n 's/^channel = "\(.*\)"/\1/p' src/rust-toolchain.toml)" >>"${GITHUB_ENV}"
+
+      - name: Build environment image
+        run: docker build -t "ladybird-${TARGET}" -f "${TARGET}.Dockerfile" --build-arg "RUST_TOOLCHAIN=${RUST_TOOLCHAIN}" .
+
+      - name: Restore vcpkg cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: cache/ladybird
+          key: vcpkg-${{ matrix.target }}-${{ hashFiles('src/vcpkg.json', 'src/vcpkg-configuration.json', format('{0}.Dockerfile', matrix.target)) }}
+          restore-keys: vcpkg-${{ matrix.target }}-
+
+      - name: Restore ccache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: cache/ccache
+          key: ccache-${{ matrix.target }}-${{ needs.upstream.outputs.commit }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ccache-${{ matrix.target }}-${{ needs.upstream.outputs.commit }}-
+            ccache-${{ matrix.target }}-
+
+      - name: Build dependencies
+        timeout-minutes: 300
+        run: docker run --rm -v "${PWD}:/w" -e BUILD_STEP=configure "ladybird-${TARGET}" scripts/build.sh /w/src /w/root
+
+      - name: Save vcpkg cache
+        if: always()
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: cache/ladybird
+          key: vcpkg-${{ matrix.target }}-${{ hashFiles('src/vcpkg.json', 'src/vcpkg-configuration.json', format('{0}.Dockerfile', matrix.target)) }}
+
+  compile:
+    name: Compile ${{ matrix.target }} ${{ matrix.shard }}
+    needs:
+      - upstream
+      - deps
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - debian
+          - ubuntu
+          - appimage
+        shard:
+          - 0
+          - 1
+          - 2
+          - 3
+    env:
+      TARGET: ${{ matrix.target }}
+      COMMIT: ${{ needs.upstream.outputs.commit }}
+      SHARD: ${{ matrix.shard }}
+    steps:
+      - name: Run actions/checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Free runner disk
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+
+      - name: Check out Ladybird
+        run: |
+          git init -q src
+          git -C src fetch -q --depth 1 https://github.com/LadybirdBrowser/ladybird.git "${COMMIT}"
+          git -C src checkout -q FETCH_HEAD
+          echo "RUST_TOOLCHAIN=$(sed -n 's/^channel = "\(.*\)"/\1/p' src/rust-toolchain.toml)" >>"${GITHUB_ENV}"
+
+      - name: Build environment image
+        run: docker build -t "ladybird-${TARGET}" -f "${TARGET}.Dockerfile" --build-arg "RUST_TOOLCHAIN=${RUST_TOOLCHAIN}" .
+
+      - name: Restore vcpkg cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: cache/ladybird
+          key: vcpkg-${{ matrix.target }}-${{ hashFiles('src/vcpkg.json', 'src/vcpkg-configuration.json', format('{0}.Dockerfile', matrix.target)) }}
+          restore-keys: vcpkg-${{ matrix.target }}-
+
+      - name: Restore ccache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: cache/ccache
+          key: ccache-${{ matrix.target }}-${{ needs.upstream.outputs.commit }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ccache-${{ matrix.target }}-${{ needs.upstream.outputs.commit }}-
+            ccache-${{ matrix.target }}-
+
+      - name: Compile shard
+        timeout-minutes: 300
+        run: |
+          docker run --rm -v "${PWD}:/w" -e "BUILD_SHARD=${SHARD}/4" \
+            -e CCACHE_REMOTE_STORAGE=file:/w/shard -e CCACHE_RESHARE=true \
+            "ladybird-${TARGET}" sh -c 'scripts/build.sh /w/src /w/root && ccache --show-stats'
+
+      - name: Run actions/upload-artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ccache-${{ matrix.target }}-${{ matrix.shard }}
+          path: shard
+          retention-days: 1
+          if-no-files-found: error
+
+  link:
+    name: Link ${{ matrix.target }}
+    needs:
+      - upstream
+      - compile
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: debian
+            package: scripts/deb.sh /w/src /w/root /w/dist sid
+          - target: ubuntu
+            package: scripts/deb.sh /w/src /w/root /w/dist ubuntu26.04
+          - target: appimage
+            package: scripts/appimage.sh /w/src /w/root /w/dist
+    env:
+      TARGET: ${{ matrix.target }}
+      COMMIT: ${{ needs.upstream.outputs.commit }}
+    steps:
+      - name: Run actions/checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Free runner disk
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+
+      - name: Check out Ladybird
+        run: |
+          git init -q src
+          git -C src fetch -q --depth 1 https://github.com/LadybirdBrowser/ladybird.git "${COMMIT}"
+          git -C src checkout -q FETCH_HEAD
+          echo "RUST_TOOLCHAIN=$(sed -n 's/^channel = "\(.*\)"/\1/p' src/rust-toolchain.toml)" >>"${GITHUB_ENV}"
+
+      - name: Build environment image
+        run: docker build -t "ladybird-${TARGET}" -f "${TARGET}.Dockerfile" --build-arg "RUST_TOOLCHAIN=${RUST_TOOLCHAIN}" .
+
+      - name: Restore vcpkg cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: cache/ladybird
+          key: vcpkg-${{ matrix.target }}-${{ hashFiles('src/vcpkg.json', 'src/vcpkg-configuration.json', format('{0}.Dockerfile', matrix.target)) }}
+          restore-keys: vcpkg-${{ matrix.target }}-
+
+      - name: Restore ccache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: cache/ccache
+          key: ccache-${{ matrix.target }}-${{ needs.upstream.outputs.commit }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ccache-${{ matrix.target }}-${{ needs.upstream.outputs.commit }}-
+            ccache-${{ matrix.target }}-
+
+      - name: Run actions/download-artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: ccache-${{ matrix.target }}-*
+          path: shard
+          merge-multiple: true
+
+      - name: Build Ladybird
+        timeout-minutes: 300
+        run: |
+          docker run --rm -v "${PWD}:/w" -e CCACHE_REMOTE_STORAGE=file:/w/shard \
+            "ladybird-${TARGET}" sh -c 'ccache --zero-stats && scripts/build.sh /w/src /w/root && ccache --show-stats'
+
+      - name: Save ccache
+        if: always()
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: cache/ccache
+          key: ccache-${{ matrix.target }}-${{ needs.upstream.outputs.commit }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Package Ladybird
+        run: docker run --rm -v "${PWD}:/w" "ladybird-${TARGET}" ${{ matrix.package }}
+
+      - name: Report runner disk
+        if: always()
+        run: df -h / && sudo du -sh cache shard src root 2>/dev/null || true
+
+      - name: Run actions/upload-artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: package-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Publish Release
+    needs:
+      - upstream
+      - link
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Run actions/download-artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: package-*
+          path: dist
+          merge-multiple: true
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.upstream.outputs.tag }}
+          COMMIT: ${{ needs.upstream.outputs.commit }}
+          RELEASED: ${{ needs.upstream.outputs.released }}
+        run: |
+          if [ "${RELEASED}" = "true" ]; then
+            gh release upload "${TAG}" dist/* --clobber --repo "${GITHUB_REPOSITORY}"
+          else
+            gh release create "${TAG}" dist/* --repo "${GITHUB_REPOSITORY}" --target "${GITHUB_SHA}" \
+              --title "Ladybird ${TAG}" \
+              --notes "Built from https://github.com/LadybirdBrowser/ladybird/commit/${COMMIT}"
+          fi
