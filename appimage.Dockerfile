@@ -15,7 +15,7 @@
 # along with Ladybird Builds.  If not, see <https://www.gnu.org/licenses/>.
 
 ARG RUST_TOOLCHAIN
-ARG LLVM_VERSION="19"
+ARG LLVM_VERSION="21"
 ARG QT_VERSION="6.11.3"
 ARG AQTINSTALL_VERSION="3.3.0"
 
@@ -39,14 +39,23 @@ ENV DEBIAN_FRONTEND=noninteractive \
   QMAKE=/opt/qt/${QT_VERSION}/gcc_64/bin/qmake \
   LD_LIBRARY_PATH=/opt/qt/${QT_VERSION}/gcc_64/lib
 
+# Trixie stops at clang 19, which rejects the constexpr tables of vcpkg's zmij, so clang comes from apt.llvm.org
+ADD --chmod=644 --checksum=sha256:8b2a587ffd672c4687e7581dad4b2f6c1bb2ad6b480cd9771ba2ff48e0b8c75d \
+  https://apt.llvm.org/llvm-snapshot.gpg.key /usr/share/keyrings/llvm.asc
+
+# The LLVM source is added once ca-certificates exists, since apt.llvm.org only serves https
 RUN apt-get update && \
+  apt-get install -y --no-install-recommends ca-certificates && \
+  echo "deb [signed-by=/usr/share/keyrings/llvm.asc] https://apt.llvm.org/trixie/ llvm-toolchain-trixie-${LLVM_VERSION} main" \
+  > /etc/apt/sources.list.d/llvm.list && \
+  apt-get update && \
   apt-get install -y --no-install-recommends \
   autoconf autoconf-archive automake build-essential ca-certificates ccache \
   clang-${LLVM_VERSION} cmake curl file git glslang-tools \
   libcurl4-openssl-dev libdbus-1-3 libdrm-dev libegl1-mesa-dev \
-  libfontconfig1 libgl1-mesa-dev libncurses-dev libpulse-dev libssl-dev \
+  libfontconfig1 libgl1-mesa-dev libglib2.0-dev libncurses-dev libpulse-dev libssl-dev \
   libtool libwayland-client0 libwayland-cursor0 libwayland-egl1 \
-  libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
+  libxcb-cursor0 libxcb-icccm4 libxcb-icccm4-dev libxcb-image0 libxcb-keysyms1 \
   libxcb-render-util0 libxcb-shape0 libxcb-xkb1 libxkbcommon-dev \
   libxkbcommon-x11-0 lld-${LLVM_VERSION} nasm ninja-build pkg-config \
   python3 python3-venv tar unzip xz-utils zip && \

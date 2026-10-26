@@ -37,7 +37,7 @@ RUN apt-get update && \
   autoconf autoconf-archive automake build-essential ca-certificates ccache \
   clang-${LLVM_VERSION} cmake curl dpkg-dev file fonts-liberation2 git \
   glslang-tools libcurl4-openssl-dev libdrm-dev libegl1-mesa-dev \
-  libgl1-mesa-dev libncurses-dev libpulse-dev libssl-dev libtool \
+  libgl1-mesa-dev libncurses-dev libpulse-dev libssl-dev libtool libxcb-icccm4-dev \
   lld-${LLVM_VERSION} nasm ninja-build pkg-config python3 python3-venv \
   qt6-base-private-dev qt6-positioning-dev qt6-tools-dev-tools qt6-wayland \
   tar unzip xz-utils zip && \
