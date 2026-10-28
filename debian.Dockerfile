@@ -18,7 +18,7 @@ ARG RUST_TOOLCHAIN
 ARG LLVM_VERSION="21"
 
 ################################################################################
-FROM debian:sid-slim@sha256:fb75970a5ba2a81ca409ed0cabcf05d53e058086fd397f7a63943ded5bd15f84 AS builder
+FROM debian:sid-slim@sha256:baf6f5c59e38758f2a4e6e461bf61dcf14049b85abb6f11f31f0ad745f50d0b7 AS builder
 ARG RUST_TOOLCHAIN
 ARG LLVM_VERSION
 
