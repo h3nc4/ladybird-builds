@@ -301,7 +301,11 @@ jobs:
           if [ "${RELEASED}" = "true" ]; then
             gh release upload "${TAG}" dist/* --clobber --repo "${GITHUB_REPOSITORY}"
           else
+            previous="$(gh release view --repo "${GITHUB_REPOSITORY}" --json tagName --jq .tagName 2>/dev/null || true)"
             gh release create "${TAG}" dist/* --repo "${GITHUB_REPOSITORY}" --target "${GITHUB_SHA}" \
               --title "Ladybird ${TAG}" \
               --notes "Built from https://github.com/LadybirdBrowser/ladybird/commit/${COMMIT}"
+            if [ -n "${previous}" ] && [ "${previous}" != "${TAG}" ]; then
+              gh release delete "${previous}" --repo "${GITHUB_REPOSITORY}" --yes --cleanup-tag
+            fi
           fi
