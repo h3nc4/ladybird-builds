@@ -20,7 +20,7 @@ ARG QT_VERSION="6.11.3"
 ARG AQTINSTALL_VERSION="3.3.0"
 
 ################################################################################
-FROM debian:13-slim@sha256:f6b08b09a05725f9431502d3b5714f5c4576e82c1a84fa1debe0c24a7e0c3ec4 AS builder
+FROM debian:13-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2 AS builder
 ARG RUST_TOOLCHAIN
 ARG LLVM_VERSION
 ARG QT_VERSION
