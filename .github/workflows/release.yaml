@@ -294,3 +294,19 @@ jobs:
               gh release delete "${previous}" --repo "${GITHUB_REPOSITORY}" --yes --cleanup-tag
             fi
           fi
+
+  cleanup:
+    name: Delete Artifacts
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Delete run artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ids="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" --jq '.artifacts[].id')"
+          for id in ${ids}; do
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}"
+          done
