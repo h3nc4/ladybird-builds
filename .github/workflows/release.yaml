@@ -4,20 +4,6 @@ on:
   schedule:
     - cron: "0 6 * * 1" # Mondays at 03:00 in São Paulo
   workflow_dispatch:
-  push:
-    branches:
-      - "main"
-    paths:
-      - "*.Dockerfile"
-      - "scripts/**"
-      - ".github/workflows/release.yaml"
-  pull_request:
-    branches:
-      - "main"
-    paths:
-      - "*.Dockerfile"
-      - "scripts/**"
-      - ".github/workflows/release.yaml"
 
 permissions: {}
 
@@ -279,7 +265,6 @@ jobs:
     needs:
       - upstream
       - link
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: write
