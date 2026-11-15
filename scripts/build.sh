@@ -62,5 +62,6 @@ fi
 
 cmake --build Build/distribution --parallel "${jobs}"
 DESTDIR="${root}" cmake --install Build/distribution --component ladybird_Runtime
+DESTDIR="${root}" cmake --install Build/distribution --component ladybird_Freedesktop
 
 find "${root}" -name '*.a' -delete
